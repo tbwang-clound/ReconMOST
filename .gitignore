@@ -1,0 +1,23 @@
+# python 相关
+# 日志文件
+gpulogs/
+
+# 数据文件
+datasets/
+tmp_data/
+TOSdataset/
+
+# 环境文件
+# 脚本文件
+*.sh
+*.txt
+experiment.md
+todo.md
+
+# slurm文件
+*.out
+slurm/
+
+# 输出目录
+direct_sample_result/
+guided_result/

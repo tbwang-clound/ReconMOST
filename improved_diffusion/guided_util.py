@@ -1,0 +1,119 @@
+import argparse
+import os
+import time
+
+import numpy as np
+import torch as th
+import blobfile as bf
+import torch.distributed as dist
+import torch.nn.functional as F
+
+
+def get_guided_arr_dict(path, in_channels):
+    # 该函数用于从指定的路径中读取所有的npy文件，并将其转换为字典形式，key为文件名(类别)，value为对应的数组CHW，另外根据in_channels参数获取相应层数的海温
+    guided_arr_dict = {}
+    for file in bf.listdir(path):
+        # file only contains the name of the file, not the full path
+        if file.endswith(".npy"):
+            with bf.BlobFile(os.path.join(path,file), "rb") as f:
+                # array [180, 360, depth_level] HWC and rescale to [-1, 1]
+                arr = np.load(f)   
+                arr = arr.astype(np.float32)
+                if len(arr.shape) == 2:
+                    arr = np.expand_dims(arr, axis=-1)
+                # transpose to C*H*W
+                arr = np.transpose(arr, (2, 0, 1))
+                arr = arr[:in_channels] # ic*H*W
+                # save to dict
+                guided_arr_dict[str(file)[0:-4]] = arr
+    return guided_arr_dict
+
+def normalization(arr):
+    return 2 * (arr + 5) / 45 - 1 
+
+def split_guide_eval(arrs, guided_rate=0.6, in_channels = 1):
+    # 给定guided_rate，将arr(一层或者多层海温CHW)按照每层随机拆分成guide和eval两部分
+    guided_arrs = []
+    eval_arrs = []
+    for arr in arrs:
+        # arr: HW
+        mask = ~np.isnan(arr)  # 0 is nan
+        mask_indices = np.argwhere(mask) # get the indices of non-nan elements
+        selected_indices = mask_indices[np.random.choice(len(mask_indices), int(len(mask_indices) * (1-guided_rate)), replace=False)] # get the indices of eval part
+        for idx in selected_indices:
+            mask[tuple(idx)] = np.nan
+        # mask: 原nan部分为0，eval部分为nan, 指导部分为1
+        guided_arr = mask * arr  # 非指导部分为nan
+        eval_mask = np.isnan(mask)
+        eval_mask[eval_mask==0] = np.nan
+        eval_arr =  eval_mask * arr #
+        guided_arrs.append(guided_arr)
+        eval_arrs.append(eval_arr)
+    return np.array(guided_arrs), np.array(eval_arrs)
+
+
+def split_guided_eval(arr, guided_rate):
+    """
+    Args:
+        arrs: List of arrays (shape [H, W]) or a single array (shape [N, H, W]).
+        guided_rate: Fraction of data to keep for guidance (e.g., 0.8 means 80% guided, 20% eval).
+    Returns:
+        guided_arrs: Arrays with only the guided part (non-guided set to NaN).
+        eval_arrs: Arrays with only the eval part (non-eval set to NaN).
+    """
+    arr = np.asarray(arr)  # Ensure input is a NumPy array
+
+    # Precompute masks for non-NaN positions
+    non_nan_mask = ~np.isnan(arr)  # CHW
+    num_non_nan = non_nan_mask.sum(axis=(1, 2))  # Number of non-NaN per array
+
+    # Generate random indices for eval (non-guided) positions
+    rng = np.random.default_rng()  # Random number generator
+    eval_indices = []
+    for i in range(len(arr)):
+        mask_indices = np.argwhere(non_nan_mask[i])  # HW non-nan indices of i-th array
+        n_eval = int(len(mask_indices) * (1 - guided_rate)) # num of eval
+        selected = rng.choice(len(mask_indices), size=n_eval, replace=False) # index of mask_indices for eval 
+        eval_indices.append(mask_indices[selected]) # CHW 
+
+    # Create eval_mask (1=eval, 0=guided or originally NaN)
+    eval_mask = np.zeros_like(arr, dtype=bool)
+    for i, idx in enumerate(eval_indices):
+        eval_mask[i, idx[:, 0], idx[:, 1]] = True
+
+    # Generate guided_arrs and eval_arrs
+    # eval_mask is T, others: nan
+    eval_arrs = np.where(~eval_mask, np.nan, arr) 
+    # guided_arrs: eval_mask T is nan or nan is nan
+    guided_arrs = np.where(eval_mask | ~non_nan_mask, np.nan, arr)  # Keep guided + originally non-NaN
+    
+
+    return guided_arrs, eval_arrs  # Remove batch dim if input was single array
+
+
+def split_guided_eval_batch_size(batchsize, arr, guided_rate):
+    guided_arrs = []
+    eval_arrs = []
+    for i in range(batchsize):
+        guided_arr, eval_arr = split_guided_eval(arr, guided_rate)
+        guided_arrs.append(guided_arr)
+        eval_arrs.append(eval_arr)
+    guided_y = th.from_numpy(np.array(guided_arrs)).float().to("cuda")
+    eval_y = th.from_numpy(np.array(eval_arrs)).float().to("cuda")
+    # eval_y = np.numpy(eval_arrs, dtype=np.float32)
+    return guided_y, eval_y
+        
+
+
+def calculate_loss(pred_arr, gt_arr, loss="l1"):
+    # 只计算非nan部分的MSE，输入的gt为没有逆归一化的
+    gt_arr = gt_arr.permute(0, 2, 3, 1).contiguous() # HWC
+    mask = ~th.isnan(gt_arr) # HWW
+    pred_arr = pred_arr[mask] # HWC
+    gt_arr = gt_arr[mask]
+    if loss == "l2" or "mse":
+        return F.mse_loss(pred_arr, gt_arr).to("cpu").item()
+    elif loss == "l1":
+        return F.l1_loss(pred_arr, gt_arr).to("cpu").item()
+    else:
+        raise ValueError(f"Unknown loss function: {loss}")
