@@ -3,6 +3,7 @@ import blobfile as bf
 from mpi4py import MPI
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
+import xarray as xr
 
 # 不是很需要参考Guided Diffusion的结构
 
@@ -27,7 +28,10 @@ def load_data(
     """
     if not data_dir:
         raise ValueError("unspecified data directory")
-    all_files = _list_image_files_recursively(data_dir)
+    # all_files = _list_image_files_recursively(data_dir)
+    all_files, train_entries = _list_files_split_train_recursively(data_dir)
+    print("Load Data from Mode: ", data_dir)
+    print("Choose Train Entries: ", train_entries)
     classes = None
     if class_cond:
         # Assume classes are the first part of the filename,
@@ -57,14 +61,28 @@ def load_data(
 def _list_image_files_recursively(data_dir):
     results = []
     for entry in sorted(bf.listdir(data_dir)):
-        full_path = bf.join(data_dir, entry)
+        # entry是文件(夹)名
+        full_path = bf.join(data_dir, entry)  # path更新为输入目录/entry
         ext = entry.split(".")[-1]
         # add NPY file.
-        if "." in entry and ext.lower() in ["jpg", "jpeg", "png", "gif", "npy"]:
+        # if "." in entry and ext.lower() in ["jpg", "jpeg", "png", "gif", "npy", "nc"]:
+        if "." in entry and ext.lower() in ['nc']:
             results.append(full_path)
         elif bf.isdir(full_path):
+            # 如果又是一个文件夹，递归调用
             results.extend(_list_image_files_recursively(full_path))
     return results
+
+def _list_files_split_train_recursively(data_dir):
+    # data_dir结尾为模式名，内涵不同初始化，留下最后一个文件夹
+    results = []
+    train_entries = []
+    for entry in sorted(bf.listdir(data_dir))[0:-1]:
+        # entry是模式名，留下最后一个作为测试集，按文件名的字典序排序
+        train_entries.append(entry)
+        full_path = bf.join(data_dir, entry)
+        results.extend(_list_image_files_recursively(full_path))
+    return results, train_entries
 
 
 class ImageDataset(Dataset):
@@ -79,37 +97,32 @@ class ImageDataset(Dataset):
 
     def __getitem__(self, idx):
         path = self.local_images[idx]
-        with bf.BlobFile(path, "rb") as f:
-            # pil_image = Image.open(f)
-            # pil_image.load()
-            arr = np.load(f) # 返回结果为 array [180, 360]
+
+        if path.endswith(".npy"):
+            with bf.BlobFile(path, "rb") as f:
+                # pil_image = Image.open(f)
+                # pil_image.load()
+                arr = np.load(f) # 返回结果为 array [180, 360]
+                arr = np.nan_to_num(arr, nan=0.0)
+                arr = 2 * (arr + 5) / 45 - 1   # rescale [-1, 1]
+                arr = arr.astype(np.float32)
+
+        elif path.endswith(".nc"):
+            ds = xr.open_dataset(path)
+            arr = ds.thetao.values  # 42层，173*360  -83-89
             arr = np.nan_to_num(arr, nan=0.0)
-            arr = 2 * (arr + 5) / 45 - 1   # rescale [-1, 1]
+            arr = 2 * (arr + 5) / 45 - 1   # [-5, 40] rescale to [-1, 1]
             arr = arr.astype(np.float32)
-
-        # # We are not on a new enough PIL to support the `reducing_gap`
-        # # argument, which uses BOX downsampling at powers of two first.
-        # # Thus, we do it by hand to improve downsample quality.
-        # while min(*pil_image.size) >= 2 * self.resolution:
-        #     pil_image = pil_image.resize(
-        #         tuple(x // 2 for x in pil_image.size), resample=Image.BOX
-        #     )
-
-        # scale = self.resolution / min(*pil_image.size)
-        # pil_image = pil_image.resize(
-        #     tuple(round(x * scale) for x in pil_image.size), resample=Image.BICUBIC
-        # )
-
-        # arr = np.array(pil_image.convert("RGB"))
-        # crop_y = (arr.shape[0] - self.resolution) // 2
-        # crop_x = (arr.shape[1] - self.resolution) // 2
-        # arr = arr[crop_y : crop_y + self.resolution, crop_x : crop_x + self.resolution]
-        # arr = arr.astype(np.float32) / 127.5 - 1
-
+            
         out_dict = {}
         # if self.local_classes is not None:
         #     out_dict["y"] = np.array(self.local_classes[idx], dtype=np.int64)
+
         # 增加一个维度。没有crop。
         if len(arr.shape) == 2:
+            # reshape成CHW
             arr = arr.reshape(1, arr.shape[0], arr.shape[1])
+        if len(arr.shape) == 4:
+            # reshape成CHW，把第一维去掉
+            arr = arr.reshape(arr.shape[1], arr.shape[2], arr.shape[3])
         return arr, out_dict

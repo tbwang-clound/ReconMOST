@@ -8,6 +8,14 @@ tmp_data/
 TOSdataset/
 
 # 环境文件
+*.env
+*.yaml
+*.yml
+*.egg-info
+
+# 临时文件
+*.ipynb
+
 # 脚本文件
 *.sh
 *.txt
@@ -21,3 +29,4 @@ slurm/
 # 输出目录
 direct_sample_result/
 guided_result/
+single_numerical_model/

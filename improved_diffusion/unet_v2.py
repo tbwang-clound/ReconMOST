@@ -220,7 +220,7 @@ class AttentionBlock(nn.Module):
         self.use_checkpoint = use_checkpoint
 
         self.norm = normalization(channels)
-        self.qkv = conv_nd(1, channels, channels * 3, 1)  # 一个一维卷积，3不会是in_channel吧
+        self.qkv = conv_nd(1, channels, channels * 3, 1)  # 一个一维卷积，3是因为QKV三组特征
         self.attention = QKVAttention()
         self.proj_out = zero_module(conv_nd(1, channels, channels, 1))
 

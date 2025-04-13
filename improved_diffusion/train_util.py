@@ -24,7 +24,7 @@ from .resample import LossAwareSampler, UniformSampler
 # We found that the lg_loss_scale quickly climbed to
 # 20-21 within the first ~1K steps of training.
 INITIAL_LOG_LOSS_SCALE = 20.0
-DIFFUSION_RESUME_CHECKPOINT = './gpulogs'
+# DIFFUSION_RESUME_CHECKPOINT = './gpulogs'
 
 
 class TrainLoop:
@@ -344,8 +344,9 @@ def get_blob_logdir():
 def find_resume_checkpoint():
     # On your infrastructure, you may want to override this to automatically
     # discover the latest checkpoint on your blob storage, etc. 使用特定的想要的checkpoint
-    result = DIFFUSION_RESUME_CHECKPOINT
-    return result
+    # result = DIFFUSION_RESUME_CHECKPOINT
+    # return result
+    return None
 
 
 def find_ema_checkpoint(main_checkpoint, step, rate):
