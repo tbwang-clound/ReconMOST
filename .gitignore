@@ -25,8 +25,10 @@ todo.md
 # slurm文件
 *.out
 slurm/
+single_slurm/
 
 # 输出目录
 direct_sample_result/
 guided_result/
 single_numerical_model/
+single_numerical_test/

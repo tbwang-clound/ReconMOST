@@ -86,7 +86,6 @@ def split_guided_eval(arr, guided_rate):
     eval_arrs = np.where(~eval_mask, np.nan, arr) 
     # guided_arrs: eval_mask T is nan or nan is nan
     guided_arrs = np.where(eval_mask | ~non_nan_mask, np.nan, arr)  # Keep guided + originally non-NaN
-    
 
     return guided_arrs, eval_arrs  # Remove batch dim if input was single array
 
@@ -94,7 +93,7 @@ def split_guided_eval(arr, guided_rate):
 def split_guided_eval_batch_size(batchsize, arr, guided_rate):
     guided_arrs = []
     eval_arrs = []
-    for i in range(batchsize):
+    for _ in range(batchsize):
         guided_arr, eval_arr = split_guided_eval(arr, guided_rate)
         guided_arrs.append(guided_arr)
         eval_arrs.append(eval_arr)
@@ -107,13 +106,24 @@ def split_guided_eval_batch_size(batchsize, arr, guided_rate):
 
 def calculate_loss(pred_arr, gt_arr, loss="l1"):
     # 只计算非nan部分的MSE，输入的gt为没有逆归一化的
-    gt_arr = gt_arr.permute(0, 2, 3, 1).contiguous() # HWC
-    mask = ~th.isnan(gt_arr) # HWW
-    pred_arr = pred_arr[mask] # HWC
-    gt_arr = gt_arr[mask]
-    if loss == "l2" or "mse":
-        return F.mse_loss(pred_arr, gt_arr).to("cpu").item()
+    pred_arr = pred_arr.permute(0,3,1,2)   # B C H W
+    mask = ~th.isnan(gt_arr) # B C H W  1,0
+    # 这种索引操作会变成一维张量
+    # pred_arr = pred_arr[mask] 
+    # gt_arr = gt_arr[mask]
+    # 逐元素操作，但是会存在nan
+    pred_arr = th.nan_to_num(pred_arr * mask, 0.0)
+    gt_arr = th.nan_to_num(gt_arr * mask, 0.0)
+    if loss == "l2" or loss == "mse":
+        # 逐元素计算 MSE
+        loss_values = F.mse_loss(pred_arr, gt_arr, reduction='none')  # 形状 (B, C, H, W)
     elif loss == "l1":
-        return F.l1_loss(pred_arr, gt_arr).to("cpu").item()
+        # 逐元素计算 L1
+        loss_values = F.l1_loss(pred_arr, gt_arr, reduction='none')  # 形状 (B, C, H, W)
     else:
         raise ValueError(f"Unknown loss function: {loss}")
+
+    # 按 H 和 W 维度求均值，得到每个通道的损失
+    loss_per_channel = loss_values.mean(dim=(-2, -1)).mean(dim=0)  # 形状 (B, C)  -> C
+    return loss_per_channel.to("cpu").numpy()  # 转为 NumPy 数组
+    # .to("cpu").item()
