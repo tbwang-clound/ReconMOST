@@ -72,15 +72,16 @@ def main():
     for file in bf.listdir(args.sparse_data_path):
         # file only contains the name of the file, not the full path
         # print(file[-11:-9])
-        if file.endswith(".nc") and file[-11:-9]=='20':
+        if file.endswith(".nc"):
             # print(file)
             path = os.path.join(args.sparse_data_path,file)
             ds = xr.open_dataset(path)
-            arr = ds.thetao.values  # 42层，173*360  -83-89
-            arr = arr.astype(np.float32)  # 保留nan [-5,40]
+            arr = ds['temperature'].values - 273.15  # [-5,40]
+            arr = arr.astype(np.float32)  # 保留nan 
             if len(arr.shape) == 4:
                 # reshape成CHW，把第一维去掉
                 arr = arr.reshape(arr.shape[1], arr.shape[2], arr.shape[3])
+                
             guided_arr_dict[str(file)[0:-3]] = arr  # .npy->.nc
     print(guided_arr_dict.keys())  # 应该是很多个 14*12
     logger.log("Successfully load the guided data!")

@@ -29,9 +29,11 @@ def load_data(
     if not data_dir:
         raise ValueError("unspecified data directory")
     # all_files = _list_image_files_recursively(data_dir)
-    all_files, train_entries = _list_files_split_train_recursively(data_dir)
-    print("Load Data from Mode: ", data_dir)
-    print("Choose Train Entries: ", train_entries)
+    all_files, train_entries = _list_multi_mode_train_recursively(data_dir)
+    # print("Load Data from Mode: ", data_dir)
+    # print("Choose Train Entries: ", train_entries)
+    for mode in train_entries:
+        print("Load Data from Mode: ", mode)
     classes = None
     if class_cond:
         # Assume classes are the first part of the filename,
@@ -73,6 +75,7 @@ def _list_image_files_recursively(data_dir):
             results.extend(_list_image_files_recursively(full_path))
     return results
 
+# use in single mode train(split every mode into train and test)
 def _list_files_split_train_recursively(data_dir):
     # data_dir结尾为模式名，内涵不同初始化，留下最后一个文件夹
     results = []
@@ -81,6 +84,20 @@ def _list_files_split_train_recursively(data_dir):
         # entry是模式名，留下最后一个作为测试集，按文件名的字典序排序
         train_entries.append(entry)
         full_path = bf.join(data_dir, entry)
+        results.extend(_list_image_files_recursively(full_path))
+    return results, train_entries
+
+
+# use in multi mode train(ablation 2)
+def _list_multi_mode_train_recursively(data_dir):
+    # data_dir结尾为模式名，内涵不同初始化，留下最后一个文件夹
+    results = []
+    train_entries = []
+    modes = ['FIO-ESM-2-0','BCC-CSM2-MR','MRI-ESM2-0','CanESM5','IPSL-CM6A-LR','FGOALS-g3','FGOALS-f3-L']
+    for mode in modes:
+        # entry是模式名，留下最后一个作为测试集，按文件名的字典序排序
+        full_path = bf.join(data_dir, mode)
+        train_entries.append(full_path)
         results.extend(_list_image_files_recursively(full_path))
     return results, train_entries
 
@@ -98,6 +115,7 @@ class ImageDataset(Dataset):
     def __getitem__(self, idx):
         path = self.local_images[idx]
 
+        # 单层.npy
         if path.endswith(".npy"):
             with bf.BlobFile(path, "rb") as f:
                 # pil_image = Image.open(f)
@@ -107,6 +125,7 @@ class ImageDataset(Dataset):
                 arr = 2 * (arr + 5) / 45 - 1   # rescale [-1, 1]
                 arr = arr.astype(np.float32)
 
+        # 多层.nc
         elif path.endswith(".nc"):
             ds = xr.open_dataset(path)
             arr = ds.thetao.values  # 42层，173*360  -83-89
