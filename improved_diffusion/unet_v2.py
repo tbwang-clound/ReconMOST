@@ -39,9 +39,7 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
     """
 
     def forward(self, x, emb):
-        # 非单 embed layer
         for layer in self:
-            # 如果是TimestepBlock的子类，就传入emb
             if isinstance(layer, TimestepBlock):
                 x = layer(x, emb)
             else:
@@ -65,10 +63,9 @@ class Upsample(nn.Module):
         self.use_conv = use_conv
         self.dims = dims
         if use_conv:
-            self.conv = conv_nd(dims, channels, channels, 3, padding=1) # 卷积维度、输入输出通道数、卷积核大小、padding
+            self.conv = conv_nd(dims, channels, channels, 3, padding=1) 
 
     def forward(self, x):
-        # 第一维是batch_size
         assert x.shape[1] == self.channels
         if self.dims == 3:
             x = F.interpolate(
@@ -90,7 +87,6 @@ class Downsample(nn.Module):
     :param dims: determines if the signal is 1D, 2D, or 3D. If 3D, then
                  downsampling occurs in the inner-two dimensions.
     """
-    # 改成了guided diffusion的版本
     def __init__(self, channels, use_conv, dims=2, out_channels=None):
         super().__init__()
         self.channels = channels
@@ -141,7 +137,7 @@ class ResBlock(TimestepBlock):
         self.channels = channels
         self.emb_channels = emb_channels
         self.dropout = dropout
-        self.out_channels = out_channels or channels  # 如果没有指定out_channels，就等于输入的
+        self.out_channels = out_channels or channels 
         self.use_conv = use_conv
         self.use_checkpoint = use_checkpoint
         self.use_scale_shift_norm = use_scale_shift_norm
@@ -202,7 +198,7 @@ class ResBlock(TimestepBlock):
         else:
             h = h + emb_out
             h = self.out_layers(h) # out_channel -> out_channel
-        return self.skip_connection(x) + h  # 如果维度不同，调整一下
+        return self.skip_connection(x) + h  
 
 
 class AttentionBlock(nn.Module):
@@ -220,7 +216,7 @@ class AttentionBlock(nn.Module):
         self.use_checkpoint = use_checkpoint
 
         self.norm = normalization(channels)
-        self.qkv = conv_nd(1, channels, channels * 3, 1)  # 一个一维卷积，3是因为QKV三组特征
+        self.qkv = conv_nd(1, channels, channels * 3, 1)  
         self.attention = QKVAttention()
         self.proj_out = zero_module(conv_nd(1, channels, channels, 1))
 
@@ -228,17 +224,16 @@ class AttentionBlock(nn.Module):
         return checkpoint(self._forward, (x,), self.parameters(), self.use_checkpoint)
 
     def _forward(self, x):
-        b, c, *spatial = x.shape  # batch, channel, spatial(可能是多维度2D,3D图)
-        x = x.reshape(b, c, -1)  # batch, channel, spatial展平
-        qkv = self.qkv(self.norm(x)) # batch个，一维spatial，channel -> 3*channel
+        b, c, *spatial = x.shape  # batch, channel, spatial
+        x = x.reshape(b, c, -1) 
+        qkv = self.qkv(self.norm(x)
         # qkv: batch, 3*channel, spatial
-        # print('check shape in line 191: ', qkv.shape) # 8, 1536, 72
         qkv = qkv.reshape(b * self.num_heads, -1, qkv.shape[2]) # batch*num_heads, 3*channel/num_heads, spatial
-        # print('check shape in line 193: ', qkv.shape) # 32, 384, 72
+        # print('check shape in line 193: ', qkv.shape) 
         h = self.attention(qkv)  # batch*num_heads, channel/num_heads, spatial
         h = h.reshape(b, -1, h.shape[-1]) # batch, channel, spatial
-        h = self.proj_out(h) # batch, channel, spatial展平(其上都是)
-        return (x + h).reshape(b, c, *spatial)  # 变回和输入完全一样的
+        h = self.proj_out(h) 
+        return (x + h).reshape(b, c, *spatial)  
 
 
 class QKVAttention(nn.Module):
@@ -253,8 +248,8 @@ class QKVAttention(nn.Module):
         :param qkv: an [N x (C * 3) x T] tensor of Qs, Ks, and Vs.
         :return: an [N x C x T] tensor after attention.
         """
-        ch = qkv.shape[1] // 3  # 新计算的channel
-        q, k, v = th.split(qkv, ch, dim=1) # 按照channel均分
+        ch = qkv.shape[1] // 3 
+        q, k, v = th.split(qkv, ch, dim=1) 
         scale = 1 / math.sqrt(math.sqrt(ch))
         weight = th.einsum(
             "bct,bcs->bts", q * scale, k * scale
@@ -333,7 +328,7 @@ class UNetModel(nn.Module):
             num_heads_upsample = num_heads
 
         self.in_channels = in_channels
-        self.model_channels = model_channels  # 中间比如隐层channel
+        self.model_channels = model_channels  
         self.out_channels = out_channels
         self.num_res_blocks = num_res_blocks
         self.attention_resolutions = attention_resolutions
@@ -367,10 +362,8 @@ class UNetModel(nn.Module):
         input_block_chans = [model_channels]
         ch = model_channels
         ds = 1
-        # level第几层，mult每一层倍数
         for level, mult in enumerate(channel_mult):
             for _ in range(num_res_blocks):
-                # 默认为2
                 layers = [
                     ResBlock(
                         ch,
@@ -479,10 +472,10 @@ class UNetModel(nn.Module):
         """
         Apply the model to an input batch.
 
-        :param x: an [N x C x ...] Tensor of inputs. 后面是2D或者3D图
-        :param timesteps: a 1-D batch of timesteps. 一维的时间 N indices
-        :param y: an [N] Tensor of labels, if class-conditional. y是类别，可以没有
-        :return: an [N x C x ...] Tensor of outputs. 返回和输入一样的维度
+        :param x: an [N x C x ...] Tensor of inputs. 
+        :param timesteps: a 1-D batch of timesteps.
+        :param y: an [N] Tensor of labels, if class-conditional. 
+        :return: an [N x C x ...] Tensor of outputs. 
         """
         assert (y is not None) == (
             self.num_classes is not None
@@ -498,15 +491,11 @@ class UNetModel(nn.Module):
 
         h = x.type(self.inner_dtype)
         for module in self.input_blocks:
-            # 调整1开始
-            # 不是正方形，则在卷积时会出现问题，正方形的卷积也用正方形不会有任何影响，但是非等边的会有问题
             H, W = h.shape[-2:]  # Get current spatial dimensions
             pad_h = (H % 2)      # If odd, pad by 1
             pad_w = (W % 2)
             h = F.pad(h, (0, pad_w, 0, pad_h))  # Pad on right and bottom to make even
-            # 全都pad成偶数，好对齐，只是加0，不会影响结果
             padding_info.append((pad_h, pad_w))  # Store for later use
-            # 调整1结束
 
             h = module(h, emb)
             # print('check shape in line 486: ', h.shape)
@@ -514,15 +503,12 @@ class UNetModel(nn.Module):
         h = self.middle_block(h, emb)
         for module in self.output_blocks:
             # print('check shape in line 492: ', h.shape)
-            cat_in = th.cat([h, hs.pop()], dim=1) # unet下采样过程中的skip connection
-            h = module(cat_in, emb)  # 将其与当前embedcat在一起，传入输出层模块
-            
-            # 调整2开始
+            cat_in = th.cat([h, hs.pop()], dim=1) 
+            h = module(cat_in, emb)  
+
             pad_h, pad_w = padding_info.pop()  # Retrieve last stored padding values
             if pad_h > 0 or pad_w > 0:
-                # 确实有pad，得去掉，右边以及下边。只改动最后两个维度
                 h = h[..., : -pad_h if pad_h > 0 else None, : -pad_w if pad_w > 0 else None]
-            # 调整2结束
         h = h.type(x.dtype)
         return self.out(h)
 
@@ -572,8 +558,7 @@ class SuperResModel(UNetModel):
     def forward(self, x, timesteps, low_res=None, **kwargs):
         _, _, new_height, new_width = x.shape
         upsampled = F.interpolate(low_res, (new_height, new_width), mode="bilinear")
-        x = th.cat([x, upsampled], dim=1)  # 将低分辨率和高分辨率拼接
-        # 对输入x做一些处理，然后调用原有的forward
+        x = th.cat([x, upsampled], dim=1)  
         return super().forward(x, timesteps, **kwargs)
 
     def get_feature_vectors(self, x, timesteps, low_res=None, **kwargs):
