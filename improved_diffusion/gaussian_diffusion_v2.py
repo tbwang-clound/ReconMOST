@@ -100,7 +100,7 @@ class LossType(enum.Enum):
 
 class GaussianDiffusion:
     """
-    Utilities for training and sampling diffusion models. 在训练和采样扩散模型时使用
+    Utilities for training and sampling diffusion models. 
 
     Ported directly from here, and then adapted over time to further experimentation.
     https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0706c543/diffusion_tf/diffusion_utils_2.py#L42
@@ -138,7 +138,7 @@ class GaussianDiffusion:
         self.num_timesteps = int(betas.shape[0])
 
         alphas = 1.0 - betas
-        self.alphas_cumprod = np.cumprod(alphas, axis=0) # 累积乘积\bar\alpha
+        self.alphas_cumprod = np.cumprod(alphas, axis=0) 
         self.alphas_cumprod_prev = np.append(1.0, self.alphas_cumprod[:-1])
         self.alphas_cumprod_next = np.append(self.alphas_cumprod[1:], 0.0)
         assert self.alphas_cumprod_prev.shape == (self.num_timesteps,)
@@ -187,7 +187,7 @@ class GaussianDiffusion:
 
     def q_sample(self, x_start, t, noise=None):
         """
-        Diffuse the data for a given number of diffusion steps. 给定扩散步数扩散数据。
+        Diffuse the data for a given number of diffusion steps. 
 
         In other words, sample from q(x_t | x_0).
 
@@ -197,7 +197,7 @@ class GaussianDiffusion:
         :return: A noisy version of x_start.
         """
         if noise is None:
-            noise = th.randn_like(x_start) # 噪声形状
+            noise = th.randn_like(x_start) 
         assert noise.shape == x_start.shape
         # 返回公式：xt = sqrt_alphas_cumprod * x0 + sqrt_one_minus_alphas_cumprod * noise
         return (
@@ -259,8 +259,8 @@ class GaussianDiffusion:
         B, C = x.shape[:2]
         assert t.shape == (B,)
         with th.enable_grad():
-            x_in = x.detach().requires_grad_()  # 计算梯度
-            model_output = model(x_in, self._scale_timesteps(t), **model_kwargs)  # 输出epsilon(xt,t)
+            x_in = x.detach().requires_grad_()  
+            model_output = model(x_in, self._scale_timesteps(t), **model_kwargs) 
         
         if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
             # 同时训练variance和epsilon
@@ -279,7 +279,6 @@ class GaussianDiffusion:
                 model_log_variance = frac * max_log + (1 - frac) * min_log
                 model_variance = th.exp(model_log_variance)
         else:
-            # 只训练epsilon，var从固定的获取
             model_variance, model_log_variance = {
                 # for fixedlarge, we set the initial (log-)variance like so
                 # to get a better decoder log likelihood.
@@ -302,9 +301,7 @@ class GaussianDiffusion:
                 return x.clamp(-1, 1)
             return x
 
-        # 至此model_output=ε(xt,t)
         if self.model_mean_type == ModelMeanType.PREVIOUS_X:
-            # 没看懂，但是不用
             pred_xstart = process_xstart(
                 self._predict_xstart_from_xprev(x_t=x, t=t, xprev=model_output)
             )
@@ -312,10 +309,8 @@ class GaussianDiffusion:
         elif self.model_mean_type in [ModelMeanType.START_X, ModelMeanType.EPSILON]:
             
             if self.model_mean_type == ModelMeanType.START_X:
-                # 如果unet模型训练结果是输出x0，就不用操作了
                 pred_xstart = process_xstart(model_output)
             else:
-                # 用ε计算x0: x0 = (x_t - sqrt(1-\bar\alpha) * eps) / sqrt(\bar\alpha)
                 pred_xstart = process_xstart(
                     self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
                 )
@@ -329,24 +324,19 @@ class GaussianDiffusion:
             model_mean.shape == model_log_variance.shape == pred_xstart.shape == x.shape
         )
 
-        # ******** 这里是改动的地方，添加epsilon对xt的梯度计算 ****
+        # ******** epsilon xt ****
         guided_gradient = None
         with th.enable_grad():
             if self.model_mean_type in [ModelMeanType.EPSILON] and dynamic_sample:
-                # 计算 module_output=epsilon 对 x_in 的梯度
-                # 精准计算为 ε_ij 求导 x_ij，简化一下变成 1/N*Σ
-                # 后续考虑加权求和（噪声大的地方改动多，噪声小的改动少）
-                # N = np.prod(np.array(model_output.shape, dtype=np.float64))
-                gamma = model_kwargs["y"] - pred_xstart # 会有nan值
-                gamma = th.nan_to_num(gamma, nan=0.0)  # 将nan转换为0
+                gamma = model_kwargs["y"] - pred_xstart 
+                gamma = th.nan_to_num(gamma, nan=0.0)   
                 gamma = gamma.detach()
-                  # 从计算图中分离，防止梯度回传，但是可以参与梯度计算
                 weighted_output = th.sum(model_output * gamma)
-                gradient = th.autograd.grad(weighted_output, x_in, retain_graph=False)[0]  # 只计算一次，无需保存计算图
+                gradient = th.autograd.grad(weighted_output, x_in, retain_graph=False)[0]  
 
                 guided_gradient = _extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x.shape) * 2* gamma - _extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x.shape) * gradient * 2
                 del gamma
-        # ******** 改动结束 ********
+        # ****************
         del x_in
 
         return {
@@ -395,8 +385,6 @@ class GaussianDiffusion:
 
         This uses the conditioning strategy from Sohl-Dickstein et al. (2015).
         """
-        # x是输入x，不是预测噪声也不是下一个sample
-        # p_mean_var里面有想要的信息
         # s = th.from_numpy(self.sqrt_recip_alphas_cumprod).to(device=t.device)[t].float()
         
         if cond_fn is not None:
@@ -409,7 +397,6 @@ class GaussianDiffusion:
 
         
     def condition_mean_on_next_x(self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None):
-        # 当下一个sample，即x取mean时的gradient，是求对下一个sample=mean的导数，输入x直接为mean，t应该变成此时此刻的t-1
         if model_kwargs is None:
             model_kwargs = {}
 
@@ -417,8 +404,8 @@ class GaussianDiffusion:
         assert t.shape == (B,)
         # xt/mu(t+1)-> epsilon(t)
         with th.enable_grad():
-            x_in = x.detach().requires_grad_()  # 分离，不再考虑x先前的梯度，只从当前时刻开始计算梯度
-            model_output = model(x_in, self._scale_timesteps(t), **model_kwargs)  # 输出epsilon(xt,t)
+            x_in = x.detach().requires_grad_()  
+            model_output = model(x_in, self._scale_timesteps(t), **model_kwargs) 
         
         def process_xstart(x):
             if denoised_fn is not None:
@@ -434,22 +421,19 @@ class GaussianDiffusion:
             pred_xstart.shape == x.shape == x_in.shape
         )
 
-        # ******** 这里是改动的地方，添加epsilon对xt的梯度计算 ****
+        # ******** epsilon xt ****
         guided_gradient = None
         with th.enable_grad():
             assert self.model_mean_type == ModelMeanType.EPSILON
-            # 计算 module_output=epsilon 对 x_in 的梯度
-            # 精准计算为 ε_ij 求导 x_ij，简化一下变成 1/N*Σ
-            # 后续考虑加权求和（噪声大的地方改动多，噪声小的改动少）
             # N = np.prod(np.array(model_output.shape, dtype=np.float64))
-            gamma = model_kwargs["y"] - pred_xstart # 会有nan值
-            gamma = th.nan_to_num(gamma, nan=0.0)  # 将nan转换为0
-            gamma = gamma.detach() # 从计算图中分离，防止前面或者本身影响了梯度，主要是和y相减的那里，相当于变成常数
+            gamma = model_kwargs["y"] - pred_xstart 
+            gamma = th.nan_to_num(gamma, nan=0.0)  
+            gamma = gamma.detach() 
             weighted_output = th.sum(model_output * gamma)
-            gradient = th.autograd.grad(weighted_output, x_in, retain_graph=False)[0]  # 只计算一次，无需保存计算图
+            gradient = th.autograd.grad(weighted_output, x_in, retain_graph=False)[0]  
             # dx0 / dxt  epsilon(t)
             guided_gradient = _extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x.shape) * gamma *2 - _extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x.shape) * gradient * 2
-        # ******** 改动结束 ********
+        # ****************
         del x_in
         del gamma
 
@@ -517,25 +501,22 @@ class GaussianDiffusion:
             t,
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
-            dynamic_sample=dynamic_guided and not dynamic_guided_with_next, # 是否直接用当前的计算指导梯度
+            dynamic_sample=dynamic_guided and not dynamic_guided_with_next,
             model_kwargs=model_kwargs,
-        )  # 输出本次时间步的mean,variance,log_variance,pred_xstart(x0)
+        )  # mean,variance,log_variance,pred_xstart(x0)
         noise = th.randn_like(x)
         nonzero_mask = (
             (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
-        )  # no noise when t == 0，生成一个大小和x相同的掩码，t!=0时为1，t==0时为0
-        # 同时将sigma是否为0合成在其中
+        )  
         if use_sigma is False:
-            nonzero_mask = 0 * nonzero_mask  #变成0，且不用考虑形状
+            nonzero_mask = 0 * nonzero_mask  
 
-        # 使用指导的梯度进行采样,用x0|xt计算
         # if cond_fn is not None:
         #     out["mean"] = self.condition_mean(
         #         cond_fn, out, x, t, model_kwargs=model_kwargs
         #     )
         if dynamic_guided:
             if dynamic_guided_with_next:
-                # 如果动态更新中的另一种，false，也就不需要在函数中计算梯度，只计算新的梯度即可
                 gradient = self.condition_mean_on_next_x(model, out["mean"], t-1, clip_denoised, denoised_fn, model_kwargs)
                 out["mean"] = out["mean"].float() + out["variance"] * gradient.float()
             else:
@@ -546,7 +527,6 @@ class GaussianDiffusion:
             )
 
         # rate = 1 if use_sigma else 0
-        # 使用公式：xt = mean + sqrt(variance) * noise
         sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise
 
         # sample:x(t-1),pred_xstart:\tilde{x0}
@@ -601,7 +581,7 @@ class GaussianDiffusion:
             device=device,
             progress=progress,
         ):
-            final = sample # 每一次迭代答案中的sample都是x(t-1)，最后那个才是x0
+            final = sample 
         return final["sample"]
 
     def p_sample_loop_progressive(
@@ -643,9 +623,8 @@ class GaussianDiffusion:
             indices = tqdm(indices)
 
         for i in indices:
-            t = th.tensor([i] * shape[0], device=device) # 扩展一下维度batch
+            t = th.tensor([i] * shape[0], device=device) 
             with th.no_grad():
-                # 开始进行t次采样，逐渐到达x0,img从噪声xt->x(t-1)->...->x0
                 out = self.p_sample(
                     model,
                     img,
@@ -659,7 +638,7 @@ class GaussianDiffusion:
                     model_kwargs=model_kwargs,
                 )
                 yield out
-                img = out["sample"]  # 在上一次sample出的x(t-1)基础上再次重建
+                img = out["sample"]  
 
     def ddim_sample(
         self,
@@ -699,9 +678,9 @@ class GaussianDiffusion:
             eta
             * th.sqrt((1 - alpha_bar_prev) / (1 - alpha_bar))
             * th.sqrt(1 - alpha_bar / alpha_bar_prev)
-        )  # 参考DDPM的公式
+        )  
         if use_sigma is False:
-            sigma = 0 * sigma  #变成0，且不用考虑形状
+            sigma = 0 * sigma  
         # Equation 12.
         noise = th.randn_like(x)
         mean_pred = (
@@ -858,7 +837,7 @@ class GaussianDiffusion:
         )
         out = self.p_mean_variance(
             model, x_t, t, clip_denoised=clip_denoised, model_kwargs=model_kwargs
-        )  # 在此函数里根据模型输出的noisy计算mean和variance
+        )  
         kl = normal_kl(
             true_mean, true_log_variance_clipped, out["mean"], out["log_variance"]
         )
@@ -891,15 +870,12 @@ class GaussianDiffusion:
         if model_kwargs is None:
             model_kwargs = {}
         if noise is None:
-            noise = th.randn_like(x_start) # 加的噪声
-        x_t = self.q_sample(x_start, t, noise=noise)  #加噪声后得到的 xt 
-        # 计算loss是比较模型输出结果的,和x0到xt真实的期望和方差
+            noise = th.randn_like(x_start) 
+        x_t = self.q_sample(x_start, t, noise=noise)  
 
         terms = {}
-
-        # 计算与unet model输出的loss
+        
         if self.loss_type == LossType.KL or self.loss_type == LossType.RESCALED_KL:
-            # 在下面函数里面
             terms["loss"] = self._vb_terms_bpd(
                 model=model,
                 x_start=x_start,
@@ -1031,7 +1007,7 @@ class GaussianDiffusion:
 
 def _extract_into_tensor(arr, timesteps, broadcast_shape):
     """
-    Extract values from a 1-D numpy array for a batch of indices. 从1-D numpy数组中提取值以获取一批索引。
+    Extract values from a 1-D numpy array for a batch of indices. 
 
     :param arr: the 1-D numpy array.
     :param timesteps: a tensor of indices into the array to extract.
@@ -1039,8 +1015,8 @@ def _extract_into_tensor(arr, timesteps, broadcast_shape):
                             dimension equal to the length of timesteps.
     :return: a tensor of shape [batch_size, 1, ...] where the shape has K dims.
     """
-    # 提取该时间步的值（diffusion model的α等）
+
     res = th.from_numpy(arr).to(device=timesteps.device)[timesteps].float()
     while len(res.shape) < len(broadcast_shape):
-        res = res[..., None]  # 返回形状为原数组形状加上一个新的轴
-    return res.expand(broadcast_shape) # 扩展维度
+        res = res[..., None]  
+    return res.expand(broadcast_shape) 
