@@ -10,7 +10,6 @@ import torch.nn.functional as F
 
 
 def get_guided_arr_dict(path, in_channels):
-    # 该函数用于从指定的路径中读取所有的npy文件，并将其转换为字典形式，key为文件名(类别)，value为对应的数组CHW，另外根据in_channels参数获取相应层数的海温
     guided_arr_dict = {}
     for file in bf.listdir(path):
         # file only contains the name of the file, not the full path
@@ -32,7 +31,6 @@ def normalization(arr):
     return 2 * (arr + 5) / 45 - 1 
 
 def split_guide_eval(arrs, guided_rate=0.6, in_channels = 1):
-    # 给定guided_rate，将arr(一层或者多层海温CHW)按照每层随机拆分成guide和eval两部分
     guided_arrs = []
     eval_arrs = []
     for arr in arrs:
@@ -42,8 +40,7 @@ def split_guide_eval(arrs, guided_rate=0.6, in_channels = 1):
         selected_indices = mask_indices[np.random.choice(len(mask_indices), int(len(mask_indices) * (1-guided_rate)), replace=False)] # get the indices of eval part
         for idx in selected_indices:
             mask[tuple(idx)] = np.nan
-        # mask: 原nan部分为0，eval部分为nan, 指导部分为1
-        guided_arr = mask * arr  # 非指导部分为nan
+        guided_arr = mask * arr  
         eval_mask = np.isnan(mask)
         eval_mask[eval_mask==0] = np.nan
         eval_arr =  eval_mask * arr #
@@ -105,25 +102,21 @@ def split_guided_eval_batch_size(batchsize, arr, guided_rate):
 
 
 def calculate_loss(pred_arr, gt_arr, loss="l1"):
-    # 只计算非nan部分的MSE，输入的gt为没有逆归一化的
     pred_arr = pred_arr.permute(0,3,1,2)   # B C H W
     mask = ~th.isnan(gt_arr) # B C H W  1,0
-    # 这种索引操作会变成一维张量
+
     # pred_arr = pred_arr[mask] 
     # gt_arr = gt_arr[mask]
-    # 逐元素操作，但是会存在nan
+   
     pred_arr = th.nan_to_num(pred_arr * mask, 0.0)
     gt_arr = th.nan_to_num(gt_arr * mask, 0.0)
     if loss == "l2" or loss == "mse":
-        # 逐元素计算 MSE
-        loss_values = F.mse_loss(pred_arr, gt_arr, reduction='none')  # 形状 (B, C, H, W)
+        loss_values = F.mse_loss(pred_arr, gt_arr, reduction='none')  # (B, C, H, W)
     elif loss == "l1":
-        # 逐元素计算 L1
-        loss_values = F.l1_loss(pred_arr, gt_arr, reduction='none')  # 形状 (B, C, H, W)
+        loss_values = F.l1_loss(pred_arr, gt_arr, reduction='none')  # (B, C, H, W)
     else:
         raise ValueError(f"Unknown loss function: {loss}")
 
-    # 按 H 和 W 维度求均值，得到每个通道的损失
-    loss_per_channel = loss_values.mean(dim=(-2, -1)).mean(dim=0)  # 形状 (B, C)  -> C
-    return loss_per_channel.to("cpu").numpy()  # 转为 NumPy 数组
+    loss_per_channel = loss_values.mean(dim=(-2, -1)).mean(dim=0)  # (B, C)  -> C
+    return loss_per_channel.to("cpu").numpy()  
     # .to("cpu").item()
