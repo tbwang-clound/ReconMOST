@@ -22,23 +22,23 @@ def create_named_schedule_sampler(name, diffusion):
 
 class ScheduleSampler(ABC):
     """
-    A distribution over timesteps in the diffusion process, intended to reduce variance of the objective. 一个时间步的扩散过程中的分布，旨在减少目标的方差。
+    A distribution over timesteps in the diffusion process, intended to reduce variance of the objective. 
 
     By default, samplers perform unbiased importance sampling, in which the objective's mean is unchanged.
-    However, subclasses may override sample() to change how the resampled terms are reweighted, allowing for actual changes in the objective. 默认情况下，采样器执行无偏重要性采样，其中目标的均值不变。但是，子类可以重写sample()以更改重新采样的项的重新加权方式，从而允许目标实际发生变化。
+    However, subclasses may override sample() to change how the resampled terms are reweighted, allowing for actual changes in the objective. 
     """
 
     @abstractmethod
     def weights(self):
         """
-        Get a numpy array of weights, one per diffusion step. 获取一个numpy数组的权重，每个扩散步骤一个。
+        Get a numpy array of weights, one per diffusion step. 
 
-        The weights needn't be normalized, but must be positive. 权重不需要被标准化，但必须是正的。
+        The weights needn't be normalized, but must be positive. 
         """
 
     def sample(self, batch_size, device):
         """
-        Importance-sample timesteps for a batch. 为一个批次重要性采样时间步。
+        Importance-sample timesteps for a batch. 
 
         :param batch_size: the number of timesteps.
         :param device: the torch device to save to.
