@@ -127,9 +127,7 @@ class _WrappedModel:
             new_ts = new_ts.float() * (1000.0 / self.original_num_steps)
         # print(self.model.__name__)
         try:
-            # 不是guided sample的时候会出错，显示没有__name__属性
             if self.model.__name__ in ["condition_mean", "condition_score", "cond_fn","cond_fn_3d"]:
-                # 会多一个s参数
                 return self.model(x, new_ts, *args, **kwargs)
         except:
             pass
