@@ -113,7 +113,7 @@ class ImageDataset(Dataset):
             with bf.BlobFile(path, "rb") as f:
                 # pil_image = Image.open(f)
                 # pil_image.load()
-                arr = np.load(f) # 返回结果为 array [180, 360]
+                arr = np.load(f) # array [180, 360]
                 arr = np.nan_to_num(arr, nan=0.0)
                 arr = 2 * (arr + 5) / 45 - 1   # rescale [-1, 1]
                 arr = arr.astype(np.float32)
