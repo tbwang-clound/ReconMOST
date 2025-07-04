@@ -28,18 +28,22 @@ def load_data(
     if not data_dir:
         raise ValueError("unspecified data directory")
     # all_files = _list_image_files_recursively(data_dir)
-    all_files, train_entries = _list_image_files_recursively(data_dir)
+
+    #all_files, train_entries = _list_image_files_recursively(data_dir)
+    #原先错用了函数，_list_files_split_train_recursively只能返回一个列表
+    all_files, train_entries = _list_files_split_train_recursively(data_dir)
     # print("Load Data from Mode: ", data_dir)
     # print("Choose Train Entries: ", train_entries)
     for mode in train_entries:
         print("Load Data from Mode: ", mode)
     classes = None
-    if class_cond:
-        # Assume classes are the first part of the filename,
-        # before an underscore.
-        class_names = [bf.basename(path).split("_")[0] for path in all_files]
-        sorted_classes = {x: i for i, x in enumerate(sorted(set(class_names)))}
-        classes = [sorted_classes[x] for x in class_names]
+    # 在reconMOST中，一直让class_cond为false即可，因为不涉及类别，或者干脆注释掉
+    # if class_cond:
+    #     # Assume classes are the first part of the filename,
+    #     # before an underscore.
+    #     class_names = [bf.basename(path).split("_")[0] for path in all_files]
+    #     sorted_classes = {x: i for i, x in enumerate(sorted(set(class_names)))}
+    #     classes = [sorted_classes[x] for x in class_names]
     dataset = ImageDataset(
         image_size,
         all_files,
@@ -109,6 +113,7 @@ class ImageDataset(Dataset):
         path = self.local_images[idx]
 
         # singlelayer.npy
+        # reconMOST用不到
         if path.endswith(".npy"):
             with bf.BlobFile(path, "rb") as f:
                 # pil_image = Image.open(f)
