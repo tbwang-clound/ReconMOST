@@ -60,16 +60,51 @@ def main():
     for file in bf.listdir(args.sparse_data_path):
         # file only contains the name of the file, not the full path
         # print(file[-11:-9])
-        if file.endswith(".nc"):
-            # print(file)
-            path = os.path.join(args.sparse_data_path, file)
-            ds = xr.open_dataset(path)
-            arr = ds['temperature'].values - 273.15
-            arr = arr.astype(np.float32)
-            if len(arr.shape) == 4:
-                arr = arr.reshape(arr.shape[1], arr.shape[2], arr.shape[3])
+        # if file.endswith(".nc"):
+        #     # print(file)
+        #     path = os.path.join(args.sparse_data_path, file)
+        #     ds = xr.open_dataset(path)
+        #     arr = ds['temperature'].values - 273.15
+        #     arr = arr.astype(np.float32)
+        #     if len(arr.shape) == 4:
+        #         arr = arr.reshape(arr.shape[1], arr.shape[2], arr.shape[3])
 
-            guided_arr_dict[str(file)[0:-3]] = arr  # .npy->.nc
+        #     guided_arr_dict[str(file)[0:-3]] = arr  # .npy->.nc
+        # 跳过非 .nc 文件
+        if not file.endswith(".nc"):
+            continue
+
+        print(f"--> Loading guidance file: {file}")
+        path = os.path.join(args.sparse_data_path, file)
+
+        try:
+            with xr.open_dataset(path) as ds:
+                # 1. 变量选择：优先'thetao'，其次'temperature'
+                var_name = None
+                if 'thetao' in ds.data_vars:
+                    var_name = 'thetao'
+                elif 'temperature' in ds.data_vars:
+                    var_name = 'temperature'
+                else:
+                    print(f"    错误：在文件 {file} 中找不到 'thetao' 或 'temperature' 变量。跳过此文件。")
+                    continue
+
+                print(f"    使用变量: '{var_name}'")
+                arr = ds[var_name].values.astype(np.float32)
+                arr = arr.squeeze()
+                # 2. 单位转换：根据数值大小判断
+                mean_val = np.nanmean(arr)
+                if mean_val > 100:
+                    print(f"    检测到数据平均值 ({mean_val:.2f}) > 100，自动进行开尔文到摄氏度的单位转换。")
+                    arr = arr - 273.15
+                else:
+                    print(f"    数据平均值 ({mean_val:.2f}) 处于正常摄氏度范围，不进行单位转换。")
+
+                # 将处理好的数据存入字典
+                guided_arr_dict[file[:-3]] = arr
+
+        except Exception as e:
+            print(f"    处理文件 {file} 时发生错误: {e}")
     print(guided_arr_dict.keys())
     logger.log("Successfully load the guided data!")
 

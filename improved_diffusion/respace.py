@@ -131,4 +131,5 @@ class _WrappedModel:
                 return self.model(x, new_ts, *args, **kwargs)
         except:
             pass
-        return self.model(x, new_ts, **kwargs)
+        # return self.model(x, new_ts, **kwargs)
+        return self.model(x, new_ts, *args, **kwargs)

@@ -6,7 +6,8 @@ gpulogs/
 datasets/
 tmp_data/
 TOSdataset/
-
+savedlogs/
+savedmodels/
 # 环境文件
 *.env
 *.yaml
