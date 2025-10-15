@@ -1,5 +1,5 @@
 # ReconMOST
-
+adjusted_diffusion
 ## Usage
 
 This section of the README walks through how to train and sample from a model.
